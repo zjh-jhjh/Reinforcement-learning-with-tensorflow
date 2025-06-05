@@ -21,14 +21,12 @@ class RL(object):
     def check_state_exist(self, state):
         if state not in self.q_table.index:
             # append new state to q table
-            self.q_table = self.q_table.append(
-                pd.Series(
-                    [0]*len(self.actions),
-                    index=self.q_table.columns,
-                    name=state,
-                )
+            new_state = pd.Series(
+                [0]*len(self.actions),
+                index=self.q_table.columns,
+                name=state,
             )
-
+            self.q_table = pd.concat([self.q_table, new_state.to_frame().T])
     def choose_action(self, observation):
         self.check_state_exist(observation)
         # action selection
@@ -58,18 +56,19 @@ class SarsaLambdaTable(RL):
     def check_state_exist(self, state):
         if state not in self.q_table.index:
             # append new state to q table
-            to_be_append = pd.Series(
-                    [0] * len(self.actions),
-                    index=self.q_table.columns,
-                    name=state,
-                )
-            self.q_table = self.q_table.append(to_be_append)
-
+            new_state = pd.Series(
+                [0] * len(self.actions),
+                index=self.q_table.columns,
+                name=state,
+            )
+            self.q_table = pd.concat([self.q_table, new_state.to_frame().T])
+            
             # also update eligibility trace
-            self.eligibility_trace = self.eligibility_trace.append(to_be_append)
+            self.eligibility_trace = pd.concat([self.eligibility_trace, new_state.to_frame().T])
 
     def learn(self, s, a, r, s_, a_):
         self.check_state_exist(s_)
+        # 计算 TD 误差 error
         q_predict = self.q_table.loc[s, a]
         if s_ != 'terminal':
             q_target = r + self.gamma * self.q_table.loc[s_, a_]  # next state is not terminal
@@ -77,7 +76,8 @@ class SarsaLambdaTable(RL):
             q_target = r  # next state is terminal
         error = q_target - q_predict
 
-        # increase trace amount for visited state-action pair
+        # increase trace amount for visited state-action pair 
+        # 使用替代迹（Method 2）更新资格迹 E(s,a)
 
         # Method 1:
         # self.eligibility_trace.loc[s, a] += 1
@@ -86,8 +86,10 @@ class SarsaLambdaTable(RL):
         self.eligibility_trace.loc[s, :] *= 0
         self.eligibility_trace.loc[s, a] = 1
 
-        # Q update
+        # Q update  更新 Q 值 Q(s,a) += α * error * E(s,a)
         self.q_table += self.lr * error * self.eligibility_trace
 
-        # decay eligibility trace after update
+        # decay eligibility trace after update 
+        # E(s,a) *= γλ 资格迹衰减
+
         self.eligibility_trace *= self.gamma*self.lambda_
