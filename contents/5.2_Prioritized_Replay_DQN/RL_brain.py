@@ -1,18 +1,17 @@
 """
 The DQN improvement: Prioritized Experience Replay (based on https://arxiv.org/abs/1511.05952)
-
-View more on my tutorial page: https://morvanzhou.github.io/tutorials/
-
-Using:
-Tensorflow: 1.0
-gym: 0.8.0
+Using TensorFlow 2.x
 """
 
 import numpy as np
 import tensorflow as tf
 
+# 确保使用 TensorFlow 1.x 的兼容模式
+tf.compat.v1.disable_eager_execution()
+
+# 设置随机种子
 np.random.seed(1)
-tf.set_random_seed(1)
+tf.random.set_seed(1)  # 替换原来的 tf.set_random_seed(1)
 
 
 class SumTree(object):
@@ -43,10 +42,15 @@ class SumTree(object):
             self.data_pointer = 0
 
     def update(self, tree_idx, p):
+        """更新树节点的优先级"""
+        # 确保 p 是标量值
+        if isinstance(p, (list, np.ndarray)):
+            p = float(p[0])  # 转换为标量
+        
         change = p - self.tree[tree_idx]
         self.tree[tree_idx] = p
-        # then propagate the change through tree
-        while tree_idx != 0:    # this method is faster than the recursive loop in the reference code
+        # 传播变化
+        while tree_idx != 0:
             tree_idx = (tree_idx - 1) // 2
             self.tree[tree_idx] += change
 
@@ -122,29 +126,22 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
         return b_idx, b_memory, ISWeights
 
     def batch_update(self, tree_idx, abs_errors):
-        abs_errors += self.epsilon  # convert to abs and avoid 0
+        """更新优先级"""
+        abs_errors = abs_errors + self.epsilon
         clipped_errors = np.minimum(abs_errors, self.abs_err_upper)
         ps = np.power(clipped_errors, self.alpha)
+        
         for ti, p in zip(tree_idx, ps):
+            # 确保 p 是标量值
+            if isinstance(p, np.ndarray):
+                p = p.item()  # 将 numpy 数组转换为标量
             self.tree.update(ti, p)
 
 
 class DQNPrioritizedReplay:
-    def __init__(
-            self,
-            n_actions,
-            n_features,
-            learning_rate=0.005,
-            reward_decay=0.9,
-            e_greedy=0.9,
-            replace_target_iter=500,
-            memory_size=10000,
-            batch_size=32,
-            e_greedy_increment=None,
-            output_graph=False,
-            prioritized=True,
-            sess=None,
-    ):
+    def __init__(self, n_actions, n_features, learning_rate=0.005, reward_decay=0.9, e_greedy=0.9,
+                 replace_target_iter=500, memory_size=10000, batch_size=32,
+                 e_greedy_increment=None, output_graph=False, prioritized=True, sess=None):
         self.n_actions = n_actions
         self.n_features = n_features
         self.lr = learning_rate
@@ -161,9 +158,9 @@ class DQNPrioritizedReplay:
         self.learn_step_counter = 0
 
         self._build_net()
-        t_params = tf.get_collection('target_net_params')
-        e_params = tf.get_collection('eval_net_params')
-        self.replace_target_op = [tf.assign(t, e) for t, e in zip(t_params, e_params)]
+        t_params = tf.compat.v1.get_collection('target_net_params')
+        e_params = tf.compat.v1.get_collection('eval_net_params')
+        self.replace_target_op = [tf.compat.v1.assign(t, e) for t, e in zip(t_params, e_params)]
 
         if self.prioritized:
             self.memory = Memory(capacity=memory_size)
@@ -171,54 +168,70 @@ class DQNPrioritizedReplay:
             self.memory = np.zeros((self.memory_size, n_features*2+2))
 
         if sess is None:
-            self.sess = tf.Session()
-            self.sess.run(tf.global_variables_initializer())
+            self.sess = tf.compat.v1.Session()
+            self.sess.run(tf.compat.v1.global_variables_initializer())
         else:
             self.sess = sess
 
         if output_graph:
-            tf.summary.FileWriter("logs/", self.sess.graph)
+            tf.compat.v1.summary.FileWriter("logs/", self.sess.graph)
 
         self.cost_his = []
 
     def _build_net(self):
         def build_layers(s, c_names, n_l1, w_initializer, b_initializer, trainable):
-            with tf.variable_scope('l1'):
-                w1 = tf.get_variable('w1', [self.n_features, n_l1], initializer=w_initializer, collections=c_names, trainable=trainable)
-                b1 = tf.get_variable('b1', [1, n_l1], initializer=b_initializer, collections=c_names,  trainable=trainable)
+            with tf.compat.v1.variable_scope('l1'):
+                w1 = tf.compat.v1.get_variable('w1', [self.n_features, n_l1], 
+                                             initializer=w_initializer, 
+                                             collections=c_names, 
+                                             trainable=trainable)
+                b1 = tf.compat.v1.get_variable('b1', [1, n_l1], 
+                                             initializer=b_initializer, 
+                                             collections=c_names,  
+                                             trainable=trainable)
                 l1 = tf.nn.relu(tf.matmul(s, w1) + b1)
 
-            with tf.variable_scope('l2'):
-                w2 = tf.get_variable('w2', [n_l1, self.n_actions], initializer=w_initializer, collections=c_names,  trainable=trainable)
-                b2 = tf.get_variable('b2', [1, self.n_actions], initializer=b_initializer, collections=c_names,  trainable=trainable)
+            with tf.compat.v1.variable_scope('l2'):
+                w2 = tf.compat.v1.get_variable('w2', [n_l1, self.n_actions], 
+                                             initializer=w_initializer, 
+                                             collections=c_names,  
+                                             trainable=trainable)
+                b2 = tf.compat.v1.get_variable('b2', [1, self.n_actions], 
+                                             initializer=b_initializer, 
+                                             collections=c_names,  
+                                             trainable=trainable)
                 out = tf.matmul(l1, w2) + b2
             return out
 
         # ------------------ build evaluate_net ------------------
-        self.s = tf.placeholder(tf.float32, [None, self.n_features], name='s')  # input
-        self.q_target = tf.placeholder(tf.float32, [None, self.n_actions], name='Q_target')  # for calculating loss
+        self.s = tf.compat.v1.placeholder(tf.float32, [None, self.n_features], name='s')
+        self.q_target = tf.compat.v1.placeholder(tf.float32, [None, self.n_actions], name='Q_target')
         if self.prioritized:
-            self.ISWeights = tf.placeholder(tf.float32, [None, 1], name='IS_weights')
-        with tf.variable_scope('eval_net'):
+            self.ISWeights = tf.compat.v1.placeholder(tf.float32, [None, 1], name='IS_weights')
+
+        with tf.compat.v1.variable_scope('eval_net'):
             c_names, n_l1, w_initializer, b_initializer = \
-                ['eval_net_params', tf.GraphKeys.GLOBAL_VARIABLES], 20, \
-                tf.random_normal_initializer(0., 0.3), tf.constant_initializer(0.1)  # config of layers
+                ['eval_net_params', tf.compat.v1.GraphKeys.GLOBAL_VARIABLES], 20, \
+                tf.compat.v1.random_normal_initializer(0., 0.3), tf.compat.v1.constant_initializer(0.1)
 
             self.q_eval = build_layers(self.s, c_names, n_l1, w_initializer, b_initializer, True)
 
-        with tf.variable_scope('loss'):
+        # 在 loss 计算部分，将 tf.squared_difference 替换为等价操作
+        with tf.compat.v1.variable_scope('loss'):
             if self.prioritized:
-                self.abs_errors = tf.reduce_sum(tf.abs(self.q_target - self.q_eval), axis=1)    # for updating Sumtree
-                self.loss = tf.reduce_mean(self.ISWeights * tf.squared_difference(self.q_target, self.q_eval))
+                # 使用平方差作为损失函数
+                self.abs_errors = tf.abs(self.q_target - self.q_eval)
+                self.loss = tf.reduce_mean(self.ISWeights * tf.square(self.q_target - self.q_eval))
             else:
-                self.loss = tf.reduce_mean(tf.squared_difference(self.q_target, self.q_eval))
-        with tf.variable_scope('train'):
-            self._train_op = tf.train.RMSPropOptimizer(self.lr).minimize(self.loss)
+                self.loss = tf.reduce_mean(tf.square(self.q_target - self.q_eval))
+
+        with tf.compat.v1.variable_scope('train'):
+            self._train_op = tf.compat.v1.train.RMSPropOptimizer(self.lr).minimize(self.loss)
 
         # ------------------ build target_net ------------------
-        self.s_ = tf.placeholder(tf.float32, [None, self.n_features], name='s_')    # input
-        with tf.variable_scope('target_net'):
-            c_names = ['target_net_params', tf.GraphKeys.GLOBAL_VARIABLES]
+        self.s_ = tf.compat.v1.placeholder(tf.float32, [None, self.n_features], name='s_')    # input
+        with tf.compat.v1.variable_scope('target_net'):
+            c_names = ['target_net_params', tf.compat.v1.GraphKeys.GLOBAL_VARIABLES]
             self.q_next = build_layers(self.s_, c_names, n_l1, w_initializer, b_initializer, False)
 
     def store_transition(self, s, a, r, s_):
@@ -266,17 +279,26 @@ class DQNPrioritizedReplay:
         q_target[batch_index, eval_act_index] = reward + self.gamma * np.max(q_next, axis=1)
 
         if self.prioritized:
-            _, abs_errors, self.cost = self.sess.run([self._train_op, self.abs_errors, self.loss],
-                                         feed_dict={self.s: batch_memory[:, :self.n_features],
-                                                    self.q_target: q_target,
-                                                    self.ISWeights: ISWeights})
-            self.memory.batch_update(tree_idx, abs_errors)     # update priority
+            _, abs_errors, self.cost = self.sess.run(
+                [self._train_op, self.abs_errors, self.loss],
+                feed_dict={
+                    self.s: batch_memory[:, :self.n_features],
+                    self.q_target: q_target,
+                    self.ISWeights: ISWeights
+                }
+            )
+            # 确保 abs_errors 是一维数组
+            abs_errors = np.abs(abs_errors).reshape(-1)
+            self.memory.batch_update(tree_idx, abs_errors)
         else:
-            _, self.cost = self.sess.run([self._train_op, self.loss],
-                                         feed_dict={self.s: batch_memory[:, :self.n_features],
-                                                    self.q_target: q_target})
+            _, self.cost = self.sess.run(
+                [self._train_op, self.loss],
+                feed_dict={
+                    self.s: batch_memory[:, :self.n_features],
+                    self.q_target: q_target
+                }
+            )
 
         self.cost_his.append(self.cost)
-
         self.epsilon = self.epsilon + self.epsilon_increment if self.epsilon < self.epsilon_max else self.epsilon_max
         self.learn_step_counter += 1

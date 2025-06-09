@@ -1,13 +1,7 @@
 """
-The DQN improvement: Prioritized Experience Replay (based on https://arxiv.org/abs/1511.05952)
-
-View more on my tutorial page: https://morvanzhou.github.io/tutorials/
-
-Using:
-Tensorflow: 1.0
-gym: 0.8.0
+The DQN improvement: Prioritized Experience Replay
+Using TensorFlow 2.x
 """
-
 
 import gym
 from RL_brain import DQNPrioritizedReplay
@@ -15,24 +9,27 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 
+# 确保使用 TensorFlow 1.x 的兼容模式
+tf.compat.v1.disable_eager_execution()
+
 env = gym.make('MountainCar-v0')
 env = env.unwrapped
-env.seed(21)
+observation, info = env.reset(seed=21)  # 新版本 gym 的 reset 方法
 MEMORY_SIZE = 10000
 
-sess = tf.Session()
-with tf.variable_scope('natural_DQN'):
+sess = tf.compat.v1.Session()
+with tf.compat.v1.variable_scope('natural_DQN'):
     RL_natural = DQNPrioritizedReplay(
         n_actions=3, n_features=2, memory_size=MEMORY_SIZE,
         e_greedy_increment=0.00005, sess=sess, prioritized=False,
     )
 
-with tf.variable_scope('DQN_with_prioritized_replay'):
+with tf.compat.v1.variable_scope('DQN_with_prioritized_replay'):
     RL_prio = DQNPrioritizedReplay(
         n_actions=3, n_features=2, memory_size=MEMORY_SIZE,
         e_greedy_increment=0.00005, sess=sess, prioritized=True, output_graph=True,
     )
-sess.run(tf.global_variables_initializer())
+sess.run(tf.compat.v1.global_variables_initializer())
 
 
 def train(RL):
@@ -40,15 +37,19 @@ def train(RL):
     steps = []
     episodes = []
     for i_episode in range(20):
-        observation = env.reset()
+        # 修改 reset 的调用方式
+        observation, _ = env.reset()
         while True:
-            # env.render()
+            # env.render()  # 如果需要渲染环境，可以取消注释
 
             action = RL.choose_action(observation)
 
-            observation_, reward, done, info = env.step(action)
+            # 修改 step 的返回值解包
+            observation_, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated  # 合并终止条件
 
-            if done: reward = 10
+            if done: 
+                reward = 10
 
             RL.store_transition(observation, action, reward, observation_)
 
